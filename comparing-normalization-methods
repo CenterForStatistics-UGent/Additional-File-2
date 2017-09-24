@@ -1,1 +1,277 @@
 
+library(edgeR)
+library(DESeq2)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+require(gridExtra)
+library(broman)
+
+#Normalization codes
+Normalize <- function(counts, conditions, norm.method="QN")
+{
+  #Normalization of count matrix
+  
+  if(norm.method=="QN"){
+    #Quantile Normalization
+    require(preprocessCore)
+    norm.counts <- normalize.quantiles(as.matrix(counts))
+    
+    colnames(norm.counts) <- colnames(counts)
+    rownames(norm.counts) <- rownames(counts)
+    return(norm.counts)
+  }
+  else if(norm.method=="limmaQN"){
+    #Quantile Normalization
+    require(limma)
+    counts.log.dat=log2(counts+0.5)
+    norm.counts=normalizeBetweenArrays(counts.log.dat,method='quantile')
+    
+    colnames(norm.counts) <- colnames(counts)
+    return(norm.counts)
+  }
+  
+  else if(norm.method=="TMM"){
+    
+    #TMM Normalization
+    require(edgeR)
+    y <- DGEList(counts=counts, group=conditions)
+    y <- calcNormFactors(y)
+    y <- estimateCommonDisp(y) 
+    
+    norm.counts <- y$pseudo.counts
+    
+    #LS <- apply(counts, 2, sum)
+    #v = calcNormFactors(y, method="TMM")$samples[,3]*LS
+    
+    #norm.counts <- matrix(NA, ncol=ncol(counts), nrow=nrow(counts))
+    #for(i in 1:ncol(counts)){
+    #  norm.counts[, i] <- counts[,i]/v[i]*1e6
+    #}
+    
+    colnames(norm.counts) <- colnames(counts)    
+    return(norm.counts)
+  }
+  
+  #DESeq Normalization
+  else if(norm.method=="DESeq"){
+    require(DESeq)
+    cds <- newCountDataSet(counts, conditions)
+    ## estimate size factor
+    cds <- estimateSizeFactors(cds)
+    norm.counts <- counts(cds, normalized=TRUE)
+    
+    colnames(norm.counts) <- colnames(counts)
+    return(norm.counts)
+  }
+  
+  else if(norm.method=="PoissonSeq"){
+    require(PoissonSeq)
+    
+    seq.depth <- PS.Est.Depth(counts, ct.sum=1, ct.mean=0)
+    norm.counts <- counts
+    for(i in 1:ncol(counts)){
+      norm.counts[,i] <- counts[,i]/seq.depth[i]
+    }
+    
+    colnames(norm.counts) <- colnames(counts)
+    return(norm.counts)
+  }
+  
+  
+  else if(norm.method=="SAMSeq"){
+    require(samr)
+    
+    x <- counts
+    y <- ifelse(conditions=="condA",1,2)  
+    samfit <- SAMseq(x, y, geneid=rownames(counts), resp.type="Two class unpaired", fdr.output=1.0)
+    
+    ls <-apply(counts, 2, sum)
+    depth <- samfit$samr.obj$depth
+    require(psych)
+    gm <- geometric.mean(depth)
+    factor <- diag(gm/depth)
+    
+    norm.counts <- as.matrix(x)%*%factor
+    colnames(norm.counts) <- colnames(counts)
+    return(norm.counts)
+  }
+}
+
+#--------------------------------------------------------------------------------------------------#
+#Loading Datasets
+##Loading NB dataset
+Zhang <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\Zhang\\Zhang_Data_20and20.RData")
+counts.Zhang <- Zhang$counts ; colnames(counts.Zhang) <- paste0(rep(c("A", "B"), each=20), c(1:20, 1:20))
+group.Zhang  <- Zhang$group
+mRNA.Zhang   <- Zhang$mRNA   ; mRNA.Zhang <- rownames(counts.Zhang)[which(rownames(counts.Zhang) %in% mRNA.Zhang)]
+lncRNA.Zhang <- Zhang$lncRNA ; lncRNA.Zhang <- rownames(counts.Zhang)[which(rownames(counts.Zhang) %in% lncRNA.Zhang)]
+
+##Loading NGP Nutlin ataset
+NGP_NUT <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\NGP Nutlin\\celine_neuroblastoma_data.RData")
+counts.NGP <- NGP_NUT$counts ; counts.NGP <- counts.NGP[which(rowSums(counts.NGP[, 1:10])>0 & rowSums(counts.NGP[, 11:20])>0), ]
+colnames(counts.NGP) <- paste0(rep(c("A", "B"), each=10), c(1:10, 1:10))
+group.NGP  <- NGP_NUT$group  ; group.NGP <- ifelse(group.NGP=="Ethanol", "condA", "condB") ; group.NGP <- as.factor(group.NGP)
+mRNA.NGP   <- NGP_NUT$mRNA   ; mRNA.NGP <- rownames(counts.NGP)[which(rownames(counts.NGP) %in% mRNA.NGP)]
+lncRNA.NGP <- NGP_NUT$lncRNA ; lncRNA.NGP <- rownames(counts.NGP)[which(rownames(counts.NGP) %in% lncRNA.NGP)]
+
+##Loading CRC AZAdataset
+CRC <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\CRC AZA data analysis\\CRC_AZA_Data.RData")
+counts.CRC <- CRC$counts ; counts.CRC <- counts.CRC[which(rowSums(counts.CRC[, 1:3])>0 & rowSums(counts.CRC[, 4:6])>0), ]
+group.CRC  <- CRC$group
+
+
+##Loading Hammer Dataset
+Hammer <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\Hammer\\Hammer_data.RData")
+counts.Hammer <- Hammer$counts ; counts.Hammer <- counts.Hammer[which(rowSums(counts.Hammer[, 1:2])>0 & rowSums(counts.Hammer[, 3:4])>0), ]
+group.Hammer  <- Hammer$group
+
+##Loading Bottomly Dataset
+Bottomly <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\Bottomly\\Bottomly_data.RData")
+counts.Bottomly <- Bottomly$counts ; counts.Bottomly <- counts.Bottomly[which(rowSums(counts.Bottomly[, 1:10])>0 & rowSums(counts.Bottomly[, 11:21])>0), ]
+group.Bottomly  <- Bottomly$group
+
+##Loading GTEx Dataset
+GTEx <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\GTEx\\GTEx_Data_20and20.RData")
+counts.GTEx <- GTEx$counts ; counts.GTEx <- counts.GTEx[which(rowSums(counts.GTEx[, 1:20])>0 & rowSums(counts.GTEx[, 21:40])>0), ]
+group.GTEx  <- GTEx$group
+
+
+#--------------------------------------------------------------------------------------------------#
+#Normalizing Counts
+
+QN.counts.Zhang          <- Normalize(counts.Zhang, group.Zhang, norm.method="QN")
+TMM.counts.Zhang         <- Normalize(counts.Zhang, group.Zhang, norm.method="TMM")
+DESeq.counts.Zhang       <- Normalize(counts.Zhang, group.Zhang, norm.method="DESeq")
+PoissonSeq.counts.Zhang  <- Normalize(counts.Zhang, group.Zhang, norm.method="PoissonSeq")
+SAMSeq.counts.Zhang      <- Normalize(counts.Zhang, group.Zhang, norm.method="SAMSeq")
+
+QN.counts.NGP          <- Normalize(counts.NGP, group.NGP, norm.method="QN")
+TMM.counts.NGP         <- Normalize(counts.NGP, group.NGP, norm.method="TMM")
+DESeq.counts.NGP       <- Normalize(counts.NGP, group.NGP, norm.method="DESeq")
+PoissonSeq.counts.NGP  <- Normalize(counts.NGP, group.NGP, norm.method="PoissonSeq")
+SAMSeq.counts.NGP      <- Normalize(counts.NGP, group.NGP, norm.method="SAMSeq")
+
+QN.counts.CRC          <- Normalize(counts.CRC, group.CRC, norm.method="QN")
+TMM.counts.CRC         <- Normalize(counts.CRC, group.CRC, norm.method="TMM")
+DESeq.counts.CRC       <- Normalize(counts.CRC, group.CRC, norm.method="DESeq")
+PoissonSeq.counts.CRC  <- Normalize(counts.CRC, group.CRC, norm.method="PoissonSeq")
+SAMSeq.counts.CRC      <- Normalize(counts.CRC, group.CRC, norm.method="SAMSeq")
+
+QN.counts.Hammer          <- Normalize(counts.Hammer, group.Hammer, norm.method="QN")
+TMM.counts.Hammer         <- Normalize(counts.Hammer, group.Hammer, norm.method="TMM")
+DESeq.counts.Hammer       <- Normalize(counts.Hammer, group.Hammer, norm.method="DESeq")
+PoissonSeq.counts.Hammer  <- Normalize(counts.Hammer, group.Hammer, norm.method="PoissonSeq")
+SAMSeq.counts.Hammer      <- Normalize(counts.Hammer, group.Hammer, norm.method="SAMSeq")
+
+QN.counts.Bottomly          <- Normalize(counts.Bottomly, group.Bottomly, norm.method="QN")
+TMM.counts.Bottomly         <- Normalize(counts.Bottomly, group.Bottomly, norm.method="TMM")
+DESeq.counts.Bottomly       <- Normalize(counts.Bottomly, group.Bottomly, norm.method="DESeq")
+PoissonSeq.counts.Bottomly  <- Normalize(counts.Bottomly, group.Bottomly, norm.method="PoissonSeq")
+SAMSeq.counts.Bottomly      <- Normalize(counts.Bottomly, group.Bottomly, norm.method="SAMSeq")
+
+QN.counts.GTEx          <- Normalize(counts.GTEx, group.GTEx, norm.method="QN")
+TMM.counts.GTEx         <- Normalize(counts.GTEx, group.GTEx, norm.method="TMM")
+DESeq.counts.GTEx       <- Normalize(counts.GTEx, group.GTEx, norm.method="DESeq")
+PoissonSeq.counts.GTEx  <- Normalize(counts.GTEx, group.GTEx, norm.method="PoissonSeq")
+SAMSeq.counts.GTEx      <- Normalize(counts.GTEx, group.GTEx, norm.method="SAMSeq")
+
+#--------------------------------------------------------------------------------------------------#
+#Distribution of counts before and after normalizations
+
+win.graph()
+par(mfrow=c(2,3))
+boxplot(log2(counts.Zhang+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=20),
+        main="Raw Counts", ylim=c(0, 20))
+boxplot(log2(QN.counts.Zhang+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=20),
+        main="Quantile normalization", ylim=c(0, 20))
+boxplot(log2(TMM.counts.Zhang+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=20),
+        main="TMM normalization", ylim=c(0, 20))
+boxplot(log2(DESeq.counts.Zhang+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=20),
+        main="DESeq normalization", ylim=c(0, 20))
+boxplot(log2(PoissonSeq.counts.Zhang+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=20),
+        main="PoissonSeq normalization", ylim=c(0, 20))
+boxplot(log2(SAMSeq.counts.Zhang+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=20),
+        main="SAMSeq normalization", ylim=c(0, 20))
+
+win.graph()
+par(mfrow=c(2,3))
+
+boxplot(log2(counts.NGP+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=10),
+        main="Raw Counts", ylim=c(0, 20))
+boxplot(log2(QN.counts.NGP+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=10),
+        main="Quantile normalization", ylim=c(0, 20))
+boxplot(log2(TMM.counts.NGP+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=10),
+        main="TMM normalization", ylim=c(0, 20))
+boxplot(log2(DESeq.counts.NGP+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=10),
+        main="DESeq normalization", ylim=c(0, 20))
+boxplot(log2(PoissonSeq.counts.NGP+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=10),
+        main="PoissonSeq normalization", ylim=c(0, 20))
+boxplot(log2(SAMSeq.counts.NGP+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=10),
+        main="SAMSeq normalization", ylim=c(0, 20))
+
+
+win.graph()
+par(mfrow=c(2,3))
+
+boxplot(log2(counts.CRC+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=3),
+        main="Raw Counts", ylim=c(0, 20))
+boxplot(log2(QN.counts.CRC+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=3),
+        main="Quantile normalization", ylim=c(0, 20))
+boxplot(log2(TMM.counts.CRC+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=3),
+        main="TMM normalization", ylim=c(0, 20))
+boxplot(log2(DESeq.counts.CRC+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=3),
+        main="DESeq normalization", ylim=c(0, 20))
+boxplot(log2(PoissonSeq.counts.CRC+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=3),
+        main="PoissonSeq normalization", ylim=c(0, 20))
+boxplot(log2(SAMSeq.counts.CRC+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), each=3),
+        main="SAMSeq normalization", ylim=c(0, 20))
+
+win.graph()
+par(mfrow=c(2,3))
+boxplot(log2(counts.Hammer+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(2, 2)),
+        main="Raw Counts", ylim=c(0, 20))
+boxplot(log2(QN.counts.Hammer+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(2, 2)),
+        main="Quantile normalization", ylim=c(0, 20))
+boxplot(log2(TMM.counts.Hammer+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(2, 2)),
+        main="TMM normalization", ylim=c(0, 20))
+boxplot(log2(DESeq.counts.Hammer+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(2, 2)),
+        main="DESeq normalization", ylim=c(0, 20))
+boxplot(log2(PoissonSeq.counts.Hammer+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(2, 2)),
+        main="PoissonSeq normalization", ylim=c(0, 20))
+boxplot(log2(SAMSeq.counts.Hammer+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(2, 2)),
+        main="SAMSeq normalization", ylim=c(0, 20))
+
+win.graph()
+par(mfrow=c(2,3))
+
+boxplot(log2(counts.Bottomly+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(10, 11)),
+        main="Raw Counts", ylim=c(0, 20))
+boxplot(log2(QN.counts.Bottomly+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(10, 11)),
+        main="Quantile normalization", ylim=c(0, 20))
+boxplot(log2(TMM.counts.Bottomly+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(10, 11)),
+        main="TMM normalization", ylim=c(0, 20))
+boxplot(log2(DESeq.counts.Bottomly+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(10, 11)),
+        main="DESeq normalization", ylim=c(0, 20))
+boxplot(log2(PoissonSeq.counts.Bottomly+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(10, 11)),
+        main="PoissonSeq normalization", ylim=c(0, 20))
+boxplot(log2(SAMSeq.counts.Bottomly+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(10, 11)),
+        main="SAMSeq normalization", ylim=c(0, 20))
+
+win.graph()
+par(mfrow=c(2,3))
+
+boxplot(log2(counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(20, 20)),
+        main="Raw Counts", ylim=c(0, 20))
+boxplot(log2(QN.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(20, 20)),
+        main="Quantile normalization", ylim=c(0, 20))
+boxplot(log2(TMM.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(20, 20)),
+        main="TMM normalization", ylim=c(0, 20))
+boxplot(log2(DESeq.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(20, 20)),
+        main="DESeq normalization", ylim=c(0, 20))
+boxplot(log2(PoissonSeq.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(20, 20)),
+        main="PoissonSeq normalization", ylim=c(0, 20))
+boxplot(log2(SAMSeq.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(20, 20)),
+        main="SAMSeq normalization", ylim=c(0, 20))
+        
+ 
