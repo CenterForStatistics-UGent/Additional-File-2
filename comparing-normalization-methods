@@ -91,6 +91,32 @@ Normalize <- function(counts, conditions, norm.method="QN")
     colnames(CV) <- levels(group)
     return(CV)
   }
+
+#Moderated t-test
+limma.test <- function(counts, group, alpha=0.05){
+  require(limma)
+  # Create model matrix and set up dge object
+  design <- model.matrix(~group)
+  # Quantile normalization  
+  counts.log.dat=log2(counts+0.5)
+  #counts.log.dat=normalizeBetweenArrays(counts.log.dat, method='none')
+  
+  # Test for differential expression
+  fit <- lmFit(counts.log.dat, design)
+  fit <- eBayes(fit)
+  
+  # Return top table
+  de_table <- topTable(fit, coef=ncol(design), n=nrow(counts.log.dat), sort.by="none")
+  res <- as.data.frame(de_table)
+  res$Genes <- rownames(res)
+  res <- res[,c(1,2,4,5,7)]
+  colnames(res) <- c("LFC", "Mean", "pval", "adjp", "Genes")
+  res$adjp[is.na(res$adjp)] <- 1
+  res$class <- ifelse(res$adjp<alpha, 1, 0)
+  return(res)
+}
+
+
 #--------------------------------------------------------------------------------------------------#
 #Loading Datasets
 ##Loading NB dataset
@@ -457,3 +483,127 @@ boxplot(log2(SAMSeq.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex
   plot2 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
   grid.arrange(plot1, plot2, ncol=2)
  
+ 
+ #-------------------------------------------------------------------------------------------------------------
+
+#Effect of Normalizations on DGE analysis
+##Comparing normalization methods based on Differential Gene expression analysis. (here we used moderated t-test using limma package for DGE analysis)
+
+#---------------------------
+#Analysig the data with limma moderated t-test
+limma_test <- function(){
+  ##DE analysis with CRC AZA datat
+  DE.limma.CRC.raw        <- limma.test(counts.CRC, group.CRC)
+  DE.limma.CRC.QN         <- limma.test(QN.counts.CRC, group.CRC)
+  DE.limma.CRC.TMM        <- limma.test(TMM.counts.CRC, group.CRC)
+  DE.limma.CRC.DESeq      <- limma.test(DESeq.counts.CRC, group.CRC)
+  DE.limma.CRC.PoissonSeq <- limma.test(PoissonSeq.counts.CRC, group.CRC)
+  DE.limma.CRC.SAMSeq     <- limma.test(SAMSeq.counts.CRC, group.CRC)
+  
+  ##summarysing results
+  DE.limma.CRC.class <- merge.data.frame(DE.limma.CRC.raw, merge.data.frame(DE.limma.CRC.QN, 
+                                              merge.data.frame(DE.limma.CRC.TMM, 
+                                              merge.data.frame(DE.limma.CRC.DE.limmaSeq, 
+                                              merge.data.frame(DE.limma.CRC.PoissonSeq, DE.limma.CRC.SAMSeq, 
+                                               by="Genes"),  by="Genes"),  by="Genes"),  by="Genes"),  by="Genes")
+                                        
+  
+  DE.limma.CRC.class <- DE.limma.CRC.class[, c(1,6, 11, 16, 21, 26, 31)]
+  rownames(DE.limma.CRC.class) <-DE.limma.CRC.class[,1]
+  DE.limma.CRC.class <- DE.limma.CRC.class[,-1]
+  colnames(DE.limma.CRC.class) <- c("Raw Count", "QN", "TMM", "DE.limmaSeq", "PoissonSeq", "SAMSeq")
+  DE.limma.CRC.overlap <- matrix(NA, ncol=6,  nrow=6)
+  for(i in 1:6){
+    for(j in 1:6){
+      DE.limma.CRC.overlap[i,j] <- length(which(DE.limma.CRC.class[,i]==1 & DE.limma.CRC.class[,j]==1))
+    }
+  }
+  
+  
+  ##DGE analysis with Neuroblastoma datat,20x20
+  DE.limma.Zhang.raw        <- limma.test(counts.Zhang, group.Zhang)
+  DE.limma.Zhang.QN         <- limma.test(QN.counts.Zhang, group.Zhang)
+  DE.limma.Zhang.TMM        <- limma.test(TMM.counts.Zhang, group.Zhang)
+  DE.limma.Zhang.DESeq      <- limma.test(DESeq.counts.Zhang, group.Zhang)
+  DE.limma.Zhang.PoissonSeq <- limma.test(PoissonSeq.counts.Zhang, group.Zhang)
+  DE.limma.Zhang.SAMSeq     <- limma.test(SAMSeq.counts.Zhang, group.Zhang)
+  
+  
+  DE.limma.Zhang.class <- merge.data.frame(DE.limma.Zhang.raw, merge.data.frame(DE.limma.Zhang.QN, 
+                                                    merge.data.frame(DE.limma.Zhang.TMM, 
+                                                    merge.data.frame(DE.limma.Zhang.DESeq, 
+                                                    merge.data.frame(DE.limma.Zhang.PoissonSeq, DE.limma.Zhang.SAMSeq, 
+                                                     by="Genes"),  by="Genes"), by="Genes"),   by="Genes"),  by="Genes")
+
+  DE.limma.Zhang.class <- DE.limma.Zhang.class[, c(1,6, 11, 16, 21, 26, 31)]
+  rownames(DE.limma.Zhang.class) <-DE.limma.Zhang.class[,1]
+  DE.limma.Zhang.class <- DE.limma.Zhang.class[,-1]
+  colnames(DE.limma.Zhang.class) <- c("Raw Count", "QN", "TMM", "DESeq", "PoissonSeq", "SAMSeq")
+  DE.limma.Zhang.overlap <- matrix(NA, ncol=6,  nrow=6)   #For all genes
+  for(i in 1:6){
+    for(j in 1:6){
+      DE.limma.Zhang.overlap[i,j] <- length(which(DE.limma.Zhang.class[,i]==1 & DE.limma.Zhang.class[,j]==1))
+    }
+  }
+  
+  
+  
+  ##for mRNA only
+  DE.limma.Zhang.overlap.mRNA <- matrix(NA, ncol=6,  nrow=6)
+  for(i in 1:6){
+    for(j in 1:6){
+      DE.limma.Zhang.overlap.mRNA[i,j] <- length(which(DE.limma.Zhang.class[mRNA.Zhang,i]==1 & DE.limma.Zhang.class[mRNA.Zhang,j]==1))
+    }
+  }
+  
+  ##for lncRNA only
+  DE.limma.Zhang.overlap.lncRNA <- matrix(NA, ncol=6,  nrow=6)
+  for(i in 1:6){
+    for(j in 1:6){
+      DE.limma.Zhang.overlap.lncRNA[i,j] <- length(which(DE.limma.Zhang.class[lncRNA.Zhang,i]==1 & DE.limma.Zhang.class[lncRNA.Zhang,j]==1))
+    }
+  }
+  
+  #Overlapping of classification
+  win.graph()
+  par(mfrow=c(2,5))
+  d <- DE.limma.CRC.overlap[-1, -1]   #excluding results for raw counts to reduce number of pairs
+  for(i in 1:4){
+    for(j in (i+1):5){
+      venn(setA = d[i,i], setB = d[j, j], both = d[i, j], method = "circle",
+           labels = NULL, col = c("cyan", "darkgoldenrod3"))
+      print(i)
+    }
+  }
+  
+  win.graph()
+  par(mfrow=c(2,5))
+  d <- DE.limma.Zhang.overlap[-1, -1]  
+  for(i in 1:4){
+    for(j in (i+1):5){
+      venn(setA = d[i,i], setB = d[j, j], both = d[i, j], method = "circle",
+           labels = NULL, col = c("cyan", "darkgoldenrod3"))
+      print(i)
+    }
+  }
+  
+  
+  d <- DE.limma.Zhang.overlap.mRNA[-1, -1]  
+  for(i in 1:4){
+    for(j in (i+1):5){
+      venn(setA = d[i,i], setB = d[j, j], both = d[i, j], method = "circle",
+           labels = NULL, col = c("cyan", "darkgoldenrod3"))
+      print(i)
+    }
+  }
+  
+  d <- DE.limma.Zhang.overlap.lncRNA[-1, -1]  
+  for(i in 1:4){
+    for(j in (i+1):5){
+      venn(setA = d[i,i], setB = d[j, j], both = d[i, j], method = "circle",
+           labels = NULL, col = c("cyan", "darkgoldenrod3"))
+      print(i)
+    }
+  }
+}
+
