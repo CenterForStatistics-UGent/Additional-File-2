@@ -1,0 +1,2 @@
+# Evaluating-DGE-tools-for-lncRNA-seq-data
+This github repository includes R software codes used for a study on the evaluation of 14 differential gene expression methods for RNA-sequencing data (particularly for mRNA and lncRNA). The study has three main modules: (1) comparing selected normalization methods, (2) concordance analysis of 14 DGE analysis tools using 6 publicly accessible real RNA-seq data, and (3) non-parametric simulation study to evaluate tools with respect to false discovery rate and sensitivity. 
