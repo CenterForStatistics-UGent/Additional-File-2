@@ -10,13 +10,10 @@ library(broman)
 #Normalization codes
 Normalize <- function(counts, conditions, norm.method="QN")
 {
-  #Normalization of count matrix
-  
+  #Quantile Normalization
   if(norm.method=="QN"){
-    #Quantile Normalization
     require(preprocessCore)
     norm.counts <- normalize.quantiles(as.matrix(counts))
-    
     colnames(norm.counts) <- colnames(counts)
     rownames(norm.counts) <- rownames(counts)
     return(norm.counts)
@@ -26,29 +23,19 @@ Normalize <- function(counts, conditions, norm.method="QN")
     require(limma)
     counts.log.dat=log2(counts+0.5)
     norm.counts=normalizeBetweenArrays(counts.log.dat,method='quantile')
-    
     colnames(norm.counts) <- colnames(counts)
     return(norm.counts)
   }
   
+  #TMM Normalization
   else if(norm.method=="TMM"){
-    
-    #TMM Normalization
     require(edgeR)
-    y <- DGEList(counts=counts, group=conditions)
-    y <- calcNormFactors(y)
-    y <- estimateCommonDisp(y) 
-    
-    norm.counts <- y$pseudo.counts
-    
-    #LS <- apply(counts, 2, sum)
-    #v = calcNormFactors(y, method="TMM")$samples[,3]*LS
-    
-    #norm.counts <- matrix(NA, ncol=ncol(counts), nrow=nrow(counts))
-    #for(i in 1:ncol(counts)){
-    #  norm.counts[, i] <- counts[,i]/v[i]*1e6
-    #}
-    
+    LS <- apply(counts, 2, sum)
+    v  <- calcNormFactors(y, method="TMM")$samples[,3]*LS
+    norm.counts <- matrix(NA, ncol=ncol(counts), nrow=nrow(counts))
+    for(i in 1:ncol(counts)){
+      norm.counts[, i] <- counts[,i]/v[i]*1e6
+    }
     colnames(norm.counts) <- colnames(counts)    
     return(norm.counts)
   }
@@ -60,55 +47,61 @@ Normalize <- function(counts, conditions, norm.method="QN")
     ## estimate size factor
     cds <- estimateSizeFactors(cds)
     norm.counts <- counts(cds, normalized=TRUE)
-    
     colnames(norm.counts) <- colnames(counts)
     return(norm.counts)
   }
   
+  #PoissonSeq normalization
   else if(norm.method=="PoissonSeq"){
     require(PoissonSeq)
-    
     seq.depth <- PS.Est.Depth(counts, ct.sum=1, ct.mean=0)
     norm.counts <- counts
     for(i in 1:ncol(counts)){
       norm.counts[,i] <- counts[,i]/seq.depth[i]
     }
-    
     colnames(norm.counts) <- colnames(counts)
     return(norm.counts)
   }
   
-  
+  #SAMSeq normalization
   else if(norm.method=="SAMSeq"){
     require(samr)
-    
     x <- counts
     y <- ifelse(conditions=="condA",1,2)  
-    samfit <- SAMseq(x, y, geneid=rownames(counts), resp.type="Two class unpaired", fdr.output=1.0)
-    
+    samfit <- SAMseq(x, y, geneid=rownames(counts), resp.type="Two class unpaired", fdr.output=1.0)    
     ls <-apply(counts, 2, sum)
     depth <- samfit$samr.obj$depth
     require(psych)
     gm <- geometric.mean(depth)
     factor <- diag(gm/depth)
-    
     norm.counts <- as.matrix(x)%*%factor
     colnames(norm.counts) <- colnames(counts)
     return(norm.counts)
   }
 }
 
+#A function that computes gene wise group specific CV
+  CV <- function(counts, group){
+    group=as.factor(group)  
+    CV <- apply(counts, 1, function(x) {
+      c(sd(x[group==levels(group)[1]])/mean(x[group==levels(group)[1]]), 
+        sd(x[group==levels(group)[2]])/mean(x[group==levels(group)[2]]))
+    })   
+    CV <- as.data.frame(t(CV))
+    colnames(CV) <- levels(group)
+    return(CV)
+  }
 #--------------------------------------------------------------------------------------------------#
 #Loading Datasets
 ##Loading NB dataset
-Zhang <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\Zhang\\Zhang_Data_20and20.RData")
+Zhang <- readRDS("data/Zhang_Data_20and20.RData")
 counts.Zhang <- Zhang$counts ; colnames(counts.Zhang) <- paste0(rep(c("A", "B"), each=20), c(1:20, 1:20))
 group.Zhang  <- Zhang$group
 mRNA.Zhang   <- Zhang$mRNA   ; mRNA.Zhang <- rownames(counts.Zhang)[which(rownames(counts.Zhang) %in% mRNA.Zhang)]
 lncRNA.Zhang <- Zhang$lncRNA ; lncRNA.Zhang <- rownames(counts.Zhang)[which(rownames(counts.Zhang) %in% lncRNA.Zhang)]
 
 ##Loading NGP Nutlin ataset
-NGP_NUT <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\NGP Nutlin\\celine_neuroblastoma_data.RData")
+NGP_NUT <- readRDS("data/celine_neuroblastoma_data.RData")
 counts.NGP <- NGP_NUT$counts ; counts.NGP <- counts.NGP[which(rowSums(counts.NGP[, 1:10])>0 & rowSums(counts.NGP[, 11:20])>0), ]
 colnames(counts.NGP) <- paste0(rep(c("A", "B"), each=10), c(1:10, 1:10))
 group.NGP  <- NGP_NUT$group  ; group.NGP <- ifelse(group.NGP=="Ethanol", "condA", "condB") ; group.NGP <- as.factor(group.NGP)
@@ -116,23 +109,23 @@ mRNA.NGP   <- NGP_NUT$mRNA   ; mRNA.NGP <- rownames(counts.NGP)[which(rownames(c
 lncRNA.NGP <- NGP_NUT$lncRNA ; lncRNA.NGP <- rownames(counts.NGP)[which(rownames(counts.NGP) %in% lncRNA.NGP)]
 
 ##Loading CRC AZAdataset
-CRC <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\CRC AZA data analysis\\CRC_AZA_Data.RData")
+CRC <- readRDS("data/CRC_AZA_Data.RData")
 counts.CRC <- CRC$counts ; counts.CRC <- counts.CRC[which(rowSums(counts.CRC[, 1:3])>0 & rowSums(counts.CRC[, 4:6])>0), ]
 group.CRC  <- CRC$group
 
 
 ##Loading Hammer Dataset
-Hammer <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\Hammer\\Hammer_data.RData")
+Hammer <- readRDS("data/Hammer_data.RData")
 counts.Hammer <- Hammer$counts ; counts.Hammer <- counts.Hammer[which(rowSums(counts.Hammer[, 1:2])>0 & rowSums(counts.Hammer[, 3:4])>0), ]
 group.Hammer  <- Hammer$group
 
 ##Loading Bottomly Dataset
-Bottomly <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\Bottomly\\Bottomly_data.RData")
+Bottomly <- readRDS("data/Bottomly_data.RData")
 counts.Bottomly <- Bottomly$counts ; counts.Bottomly <- counts.Bottomly[which(rowSums(counts.Bottomly[, 1:10])>0 & rowSums(counts.Bottomly[, 11:21])>0), ]
 group.Bottomly  <- Bottomly$group
 
 ##Loading GTEx Dataset
-GTEx <- readRDS("C:\\Users\\Alemu\\Dropbox\\R Analysis\\DataRCodeFinal\\04-Code - Copy\\New file to store R Data\\GTEx\\GTEx_Data_20and20.RData")
+GTEx <- readRDS("data/GTEx_Data_20and20.RData")
 counts.GTEx <- GTEx$counts ; counts.GTEx <- counts.GTEx[which(rowSums(counts.GTEx[, 1:20])>0 & rowSums(counts.GTEx[, 21:40])>0), ]
 group.GTEx  <- GTEx$group
 
@@ -274,4 +267,193 @@ boxplot(log2(PoissonSeq.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)",
 boxplot(log2(SAMSeq.counts.GTEx+1), xlab="samples", ylab="log2(counts + 1)", cex.lab=1.5, col=rep(c("lightblue4", "lightcoral"), c(20, 20)),
         main="SAMSeq normalization", ylim=c(0, 20))
         
+ 
+ #------------------------------------------------------------------------------------------------
+ #Distribution of empirical CV of genes
+ ##For Zhang dataste
+  CV.counts.Zhang            <- CV(counts.Zhang, group.Zhang)
+  CV.QN.counts.Zhang         <- CV(QN.counts.Zhang, group.Zhang)
+  CV.TMM.counts.Zhang        <- CV(TMM.counts.Zhang, group.Zhang)
+  CV.DESeq.counts.Zhang      <- CV(DESeq.counts.Zhang, group.Zhang)
+  CV.PoissonSeq.counts.Zhang <- CV(PoissonSeq.counts.Zhang, group.Zhang)
+  CV.SAMSeq.counts.Zhang     <- CV(SAMSeq.counts.Zhang, group.Zhang)
+
+  CV.Zhang <- rbind(CV.counts.Zhang, CV.QN.counts.Zhang, CV.TMM.counts.Zhang, CV.DESeq.counts.Zhang,
+                    CV.PoissonSeq.counts.Zhang, CV.SAMSeq.counts.Zhang)
+  CV.Zhang$norm.methods <- factor(rep(c("Raw Count", "QN", "TMM", "DESeq", "PoissonSeq", "SAMSeq"),
+                                      c(nrow(CV.counts.Zhang), nrow(CV.QN.counts.Zhang), nrow(CV.TMM.counts.Zhang), 
+                                        nrow(CV.DESeq.counts.Zhang), nrow(CV.PoissonSeq.counts.Zhang),
+                                        nrow(CV.SAMSeq.counts.Zhang))))
+  
+  win.graph()
+  CV.Zhang$norm.methods.A <- sortLvlsByVar.fnc(CV.Zhang$norm.methods, CV.Zhang$condA)
+  p <- ggplot(CV.Zhang, aes(x=norm.methods.A, y=condA))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15)) +ylim(0, 2)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("MYCN not amplified")
+  plot1 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  
+  CV.Zhang$norm.methods.B <- sortLvlsByVar.fnc(CV.Zhang$norm.methods, CV.Zhang$condB)
+  p <- ggplot(CV.Zhang, aes(x=norm.methods.B, y=condB))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 2)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("MYCN amplified")
+  plot2 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  grid.arrange(plot1, plot2, ncol=2)
+  
+  ##For NGP dataste
+  CV.counts.NGP            <- CV(counts.NGP, group.NGP)
+  CV.QN.counts.NGP         <- CV(QN.counts.NGP, group.NGP)
+  CV.TMM.counts.NGP        <- CV(TMM.counts.NGP, group.NGP)
+  CV.DESeq.counts.NGP      <- CV(DESeq.counts.NGP, group.NGP)
+  CV.PoissonSeq.counts.NGP <- CV(PoissonSeq.counts.NGP, group.NGP)
+  CV.SAMSeq.counts.NGP     <- CV(SAMSeq.counts.NGP, group.NGP)
+  
+  CV.NGP <- rbind(CV.counts.NGP, CV.QN.counts.NGP, CV.TMM.counts.NGP, CV.DESeq.counts.NGP,
+                  CV.PoissonSeq.counts.NGP, CV.SAMSeq.counts.NGP)
+  CV.NGP$norm.methods <- factor(rep(c("Raw Count", "QN", "TMM", "DESeq", "PoissonSeq", "SAMSeq"),
+                                    c(nrow(CV.counts.NGP), nrow(CV.QN.counts.NGP), nrow(CV.TMM.counts.NGP), 
+                                      nrow(CV.DESeq.counts.NGP), nrow(CV.PoissonSeq.counts.NGP),
+                                      nrow(CV.SAMSeq.counts.NGP))))
+
+  win.graph()
+  CV.NGP$norm.methods.A <- sortLvlsByVar.fnc(CV.NGP$norm.methods, CV.NGP$condA)
+  p <- ggplot(CV.NGP, aes(x=norm.methods.A, y=condA))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 2)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("Ethanol")
+  plot1 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  
+  CV.NGP$norm.methods.B <- sortLvlsByVar.fnc(CV.NGP$norm.methods, CV.NGP$condB)
+  p <- ggplot(CV.NGP, aes(x=norm.methods.B, y=condB))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 2)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("Nutlin-3")
+  plot2 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  grid.arrange(plot1, plot2, ncol=2)
+  
+  ##For CRC dataste
+  CV.counts.CRC            <- CV(counts.CRC, group.CRC)
+  CV.QN.counts.CRC         <- CV(QN.counts.CRC, group.CRC)
+  CV.TMM.counts.CRC        <- CV(TMM.counts.CRC, group.CRC)
+  CV.DESeq.counts.CRC      <- CV(DESeq.counts.CRC, group.CRC)
+  CV.PoissonSeq.counts.CRC <- CV(PoissonSeq.counts.CRC, group.CRC)
+  CV.SAMSeq.counts.CRC     <- CV(SAMSeq.counts.CRC, group.CRC)
+  
+  CV.CRC <- rbind(CV.counts.CRC, CV.QN.counts.CRC, CV.TMM.counts.CRC, CV.DESeq.counts.CRC,
+                  CV.PoissonSeq.counts.CRC, CV.SAMSeq.counts.CRC)
+  CV.CRC$norm.methods <- factor(rep(c("Raw Count", "QN", "TMM", "DESeq", "PoissonSeq", "SAMSeq"),
+                                    c(nrow(CV.counts.CRC), nrow(CV.QN.counts.CRC), nrow(CV.TMM.counts.CRC), 
+                                      nrow(CV.DESeq.counts.CRC), nrow(CV.PoissonSeq.counts.CRC),
+                                      nrow(CV.SAMSeq.counts.CRC))))
+
+  library(ggplot2)
+  win.graph()
+  CV.CRC$norm.methods.A <- sortLvlsByVar.fnc(CV.CRC$norm.methods, CV.CRC$condA)
+  p <- ggplot(CV.CRC, aes(x=norm.methods.A, y=condA))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 0.5)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("Control")
+  plot1 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  
+  CV.CRC$norm.methods.B <- sortLvlsByVar.fnc(CV.CRC$norm.methods, CV.CRC$condB)
+  p <- ggplot(CV.CRC, aes(x=norm.methods.B, y=condB))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 0.5)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("Treatd with AZA")
+  plot2 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  grid.arrange(plot1, plot2, ncol=2)
+  
+  
+  ##For Hammer dataste
+  CV.counts.Hammer            <- CV(counts.Hammer, group.Hammer)
+  CV.QN.counts.Hammer         <- CV(QN.counts.Hammer, group.Hammer)
+  CV.TMM.counts.Hammer        <- CV(TMM.counts.Hammer, group.Hammer)
+  CV.DESeq.counts.Hammer      <- CV(DESeq.counts.Hammer, group.Hammer)
+  CV.PoissonSeq.counts.Hammer <- CV(PoissonSeq.counts.Hammer, group.Hammer)
+  CV.SAMSeq.counts.Hammer     <- CV(SAMSeq.counts.Hammer, group.Hammer)
+  
+  CV.Hammer <- rbind(CV.counts.Hammer, CV.QN.counts.Hammer, CV.TMM.counts.Hammer, CV.DESeq.counts.Hammer,
+                     CV.PoissonSeq.counts.Hammer, CV.SAMSeq.counts.Hammer)
+  CV.Hammer$norm.methods <- factor(rep(c("Raw Count", "QN", "TMM", "DESeq", "PoissonSeq", "SAMSeq"),
+                                       c(nrow(CV.counts.Hammer), nrow(CV.QN.counts.Hammer), nrow(CV.TMM.counts.Hammer), 
+                                         nrow(CV.DESeq.counts.Hammer), nrow(CV.PoissonSeq.counts.Hammer),
+                                         nrow(CV.SAMSeq.counts.Hammer))))
+  
+  win.graph()
+  CV.Hammer$norm.methods.A <- sortLvlsByVar.fnc(CV.Hammer$norm.methods, CV.Hammer$condA)
+  p <- ggplot(CV.Hammer, aes(x=norm.methods.A, y=condA))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 0.5)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("Control")
+  plot1 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  
+  CV.Hammer$norm.methods.B <- sortLvlsByVar.fnc(CV.Hammer$norm.methods, CV.Hammer$condB)
+  p <- ggplot(CV.Hammer, aes(x=norm.methods.B, y=condB))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 0.5)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("L5 SNL")
+  plot2 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  grid.arrange(plot1, plot2, ncol=2)
+
+  ##For Bottomly dataste
+  CV.counts.Bottomly            <- CV(counts.Bottomly, group.Bottomly)
+  CV.QN.counts.Bottomly         <- CV(QN.counts.Bottomly, group.Bottomly)
+  CV.TMM.counts.Bottomly        <- CV(TMM.counts.Bottomly, group.Bottomly)
+  CV.DESeq.counts.Bottomly      <- CV(DESeq.counts.Bottomly, group.Bottomly)
+  CV.PoissonSeq.counts.Bottomly <- CV(PoissonSeq.counts.Bottomly, group.Bottomly)
+  CV.SAMSeq.counts.Bottomly     <- CV(SAMSeq.counts.Bottomly, group.Bottomly)
+  
+  CV.Bottomly <- rbind(CV.counts.Bottomly, CV.QN.counts.Bottomly, CV.TMM.counts.Bottomly, CV.DESeq.counts.Bottomly,
+                       CV.PoissonSeq.counts.Bottomly, CV.SAMSeq.counts.Bottomly)
+  CV.Bottomly$norm.methods <- factor(rep(c("Raw Count", "QN", "TMM", "DESeq", "PoissonSeq", "SAMSeq"),
+                                         c(nrow(CV.counts.Bottomly), nrow(CV.QN.counts.Bottomly), nrow(CV.TMM.counts.Bottomly), 
+                                           nrow(CV.DESeq.counts.Bottomly), nrow(CV.PoissonSeq.counts.Bottomly),
+                                           nrow(CV.SAMSeq.counts.Bottomly))))
+
+  win.graph()
+  CV.Bottomly$norm.methods.A <- sortLvlsByVar.fnc(CV.Bottomly$norm.methods, CV.Bottomly$condA)
+  p <- ggplot(CV.Bottomly, aes(x=norm.methods.A, y=condA))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15)) +ylim(0, 1)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("B6 mouse strain")
+  plot1 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  
+  CV.Bottomly$norm.methods.B <- sortLvlsByVar.fnc(CV.Bottomly$norm.methods, CV.Bottomly$condB)
+  p <- ggplot(CV.Bottomly, aes(x=norm.methods.B, y=condB))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 1)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("D2 mouse strain")
+  plot2 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  grid.arrange(plot1, plot2, ncol=2)
+
+  ##For GTEx dataste
+  CV.counts.GTEx            <- CV(counts.GTEx, group.GTEx)
+  CV.QN.counts.GTEx         <- CV(QN.counts.GTEx, group.GTEx)
+  CV.TMM.counts.GTEx        <- CV(TMM.counts.GTEx, group.GTEx)
+  CV.DESeq.counts.GTEx      <- CV(DESeq.counts.GTEx, group.GTEx)
+  CV.PoissonSeq.counts.GTEx <- CV(PoissonSeq.counts.GTEx, group.GTEx)
+  CV.SAMSeq.counts.GTEx     <- CV(SAMSeq.counts.GTEx, group.GTEx)
+  
+  CV.GTEx <- rbind(CV.counts.GTEx, CV.QN.counts.GTEx, CV.TMM.counts.GTEx, CV.DESeq.counts.GTEx,
+                   CV.PoissonSeq.counts.GTEx, CV.SAMSeq.counts.GTEx)
+  CV.GTEx$norm.methods <- factor(rep(c("Raw Count", "QN", "TMM", "DESeq", "PoissonSeq", "SAMSeq"),
+                                     c(nrow(CV.counts.GTEx), nrow(CV.QN.counts.GTEx), nrow(CV.TMM.counts.GTEx), 
+                                       nrow(CV.DESeq.counts.GTEx), nrow(CV.PoissonSeq.counts.GTEx),
+                                       nrow(CV.SAMSeq.counts.GTEx))))
+  win.graph()
+  CV.GTEx$norm.methods.A <- sortLvlsByVar.fnc(CV.GTEx$norm.methods, CV.GTEx$condA)
+  p <- ggplot(CV.GTEx, aes(x=norm.methods.A, y=condA))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 1.5)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("Hippocampus tissue")
+  plot1 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  
+  CV.GTEx$norm.methods.B <- sortLvlsByVar.fnc(CV.GTEx$norm.methods, CV.GTEx$condB)
+  p <- ggplot(CV.GTEx, aes(x=norm.methods.B, y=condB))
+  p <- p + theme(axis.text.x = element_text(angle = 45, vjust = 1,  size = 12, hjust = 1))
+  p <- p + theme(text = element_text(size = 15))+ylim(0, 1.5)
+  p <- p + labs(x = "", y= "empirical CV (sd/mean)") + ggtitle("Hypothalamus")
+  plot2 <- p + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), fill = "darkgoldenrod4", colour = "black")
+  grid.arrange(plot1, plot2, ncol=2)
  
